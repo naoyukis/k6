@@ -21,7 +21,6 @@
 package crypto
 
 import (
-	"context"
 	"crypto/hmac"
 	"crypto/md5"
 	"crypto/rand"
@@ -31,6 +30,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"hash"
 
 	"golang.org/x/crypto/md4"
@@ -39,23 +39,70 @@ import (
 	"github.com/dop251/goja"
 
 	"go.k6.io/k6/js/common"
+	"go.k6.io/k6/js/modules"
 )
 
-type Crypto struct{}
+type (
+	// RootModule is the global module instance that will create module
+	// instances for each VU.
+	RootModule struct{}
 
-type Hasher struct {
-	ctx context.Context
+	// Crypto represents an instance of the crypto module.
+	Crypto struct {
+		vu  modules.VU
+		obj *goja.Object
+	}
+)
 
-	hash hash.Hash
+var (
+	_ modules.Module   = &RootModule{}
+	_ modules.Instance = &Crypto{}
+)
+
+// New returns a pointer to a new RootModule instance.
+func New() *RootModule {
+	return &RootModule{}
 }
 
-func New() *Crypto {
-	return &Crypto{}
+// NewModuleInstance implements the modules.Module interface to return
+// a new instance for each VU.
+func (*RootModule) NewModuleInstance(vu modules.VU) modules.Instance {
+	rt := vu.Runtime()
+	o := rt.NewObject()
+	mi := &Crypto{vu: vu, obj: o}
+
+	mustExport := func(name string, value interface{}) {
+		if err := mi.obj.Set(name, value); err != nil {
+			common.Throw(rt, err)
+		}
+	}
+
+	mustExport("createHash", mi.CreateHash)
+	mustExport("createHMAC", mi.CreateHMAC)
+	mustExport("hmac", mi.HMAC)
+	mustExport("md4", mi.MD4)
+	mustExport("md5", mi.MD5)
+	mustExport("randomBytes", mi.RandomBytes)
+	mustExport("ripemd160", mi.Ripemd160)
+	mustExport("sha1", mi.SHA1)
+	mustExport("sha256", mi.SHA256)
+	mustExport("sha384", mi.SHA384)
+	mustExport("sha512", mi.SHA512)
+	mustExport("sha512_224", mi.SHA512224)
+	mustExport("sha512_256", mi.SHA512256)
+	mustExport("hexEncode", mi.HexEncode)
+
+	return mi
+}
+
+// Exports returns the exports of the execution module.
+func (c *Crypto) Exports() modules.Exports {
+	return modules.Exports{Default: c.obj}
 }
 
 // RandomBytes returns random data of the given size.
-func (*Crypto) RandomBytes(ctx context.Context, size int) *goja.ArrayBuffer {
-	rt := common.GetRuntime(ctx)
+func (c *Crypto) RandomBytes(size int) *goja.ArrayBuffer {
+	rt := c.vu.Runtime()
 	if size < 1 {
 		common.Throw(rt, errors.New("invalid size"))
 	}
@@ -68,114 +115,157 @@ func (*Crypto) RandomBytes(ctx context.Context, size int) *goja.ArrayBuffer {
 	return &ab
 }
 
-// Md4 returns the MD4 hash of input in the given encoding.
-func (c *Crypto) Md4(ctx context.Context, input interface{}, outputEncoding string) interface{} {
-	hasher := c.CreateHash(ctx, "md4")
+// MD4 returns the MD4 hash of input in the given encoding.
+func (c *Crypto) MD4(input interface{}, outputEncoding string) interface{} {
+	hasher := c.CreateHash("md4")
 	hasher.Update(input)
 	return hasher.Digest(outputEncoding)
 }
 
-// Md5 returns the MD5 hash of input in the given encoding.
-func (c *Crypto) Md5(ctx context.Context, input interface{}, outputEncoding string) interface{} {
-	hasher := c.CreateHash(ctx, "md5")
+// MD5 returns the MD5 hash of input in the given encoding.
+func (c *Crypto) MD5(input interface{}, outputEncoding string) interface{} {
+	hasher := c.CreateHash("md5")
 	hasher.Update(input)
 	return hasher.Digest(outputEncoding)
 }
 
-// Sha1 returns the SHA1 hash of input in the given encoding.
-func (c *Crypto) Sha1(ctx context.Context, input interface{}, outputEncoding string) interface{} {
-	hasher := c.CreateHash(ctx, "sha1")
+// SHA1 returns the SHA1 hash of input in the given encoding.
+func (c *Crypto) SHA1(input interface{}, outputEncoding string) interface{} {
+	hasher := c.CreateHash("sha1")
 	hasher.Update(input)
 	return hasher.Digest(outputEncoding)
 }
 
-// Sha256 returns the SHA256 hash of input in the given encoding.
-func (c *Crypto) Sha256(ctx context.Context, input interface{}, outputEncoding string) interface{} {
-	hasher := c.CreateHash(ctx, "sha256")
+// SHA256 returns the SHA256 hash of input in the given encoding.
+func (c *Crypto) SHA256(input interface{}, outputEncoding string) interface{} {
+	hasher := c.CreateHash("sha256")
 	hasher.Update(input)
 	return hasher.Digest(outputEncoding)
 }
 
-// Sha384 returns the SHA384 hash of input in the given encoding.
-func (c *Crypto) Sha384(ctx context.Context, input interface{}, outputEncoding string) interface{} {
-	hasher := c.CreateHash(ctx, "sha384")
+// SHA384 returns the SHA384 hash of input in the given encoding.
+func (c *Crypto) SHA384(input interface{}, outputEncoding string) interface{} {
+	hasher := c.CreateHash("sha384")
 	hasher.Update(input)
 	return hasher.Digest(outputEncoding)
 }
 
-// Sha512 returns the SHA512 hash of input in the given encoding.
-func (c *Crypto) Sha512(ctx context.Context, input interface{}, outputEncoding string) interface{} {
-	hasher := c.CreateHash(ctx, "sha512")
+// SHA512 returns the SHA512 hash of input in the given encoding.
+func (c *Crypto) SHA512(input interface{}, outputEncoding string) interface{} {
+	hasher := c.CreateHash("sha512")
 	hasher.Update(input)
 	return hasher.Digest(outputEncoding)
 }
 
-// Sha512_224 returns the SHA512/224 hash of input in the given encoding.
-func (c *Crypto) Sha512_224(ctx context.Context, input interface{}, outputEncoding string) interface{} {
-	hasher := c.CreateHash(ctx, "sha512_224")
+// SHA512224 returns the SHA512/224 hash of input in the given encoding.
+func (c *Crypto) SHA512224(input interface{}, outputEncoding string) interface{} {
+	hasher := c.CreateHash("sha512_224")
 	hasher.Update(input)
 	return hasher.Digest(outputEncoding)
 }
 
-// Sha512_256 returns the SHA512/256 hash of input in the given encoding.
-func (c *Crypto) Sha512_256(ctx context.Context, input interface{}, outputEncoding string) interface{} {
-	hasher := c.CreateHash(ctx, "sha512_256")
+// SHA512256 returns the SHA512/256 hash of input in the given encoding.
+func (c *Crypto) SHA512256(input interface{}, outputEncoding string) interface{} {
+	hasher := c.CreateHash("sha512_256")
 	hasher.Update(input)
 	return hasher.Digest(outputEncoding)
 }
 
 // Ripemd160 returns the RIPEMD160 hash of input in the given encoding.
-func (c *Crypto) Ripemd160(ctx context.Context, input interface{}, outputEncoding string) interface{} {
-	hasher := c.CreateHash(ctx, "ripemd160")
+func (c *Crypto) Ripemd160(input interface{}, outputEncoding string) interface{} {
+	hasher := c.CreateHash("ripemd160")
 	hasher.Update(input)
 	return hasher.Digest(outputEncoding)
 }
 
 // CreateHash returns a Hasher instance that uses the given algorithm.
-func (*Crypto) CreateHash(ctx context.Context, algorithm string) *Hasher {
-	hasher := Hasher{}
-	hasher.ctx = ctx
+func (c *Crypto) CreateHash(algorithm string) *Hasher {
+	hashfn := c.parseHashFunc(algorithm)
+	return &Hasher{
+		runtime: c.vu.Runtime(),
+		hash:    hashfn(),
+	}
+}
 
-	switch algorithm {
-	case "md4":
-		hasher.hash = md4.New()
-	case "md5":
-		hasher.hash = md5.New()
-	case "sha1":
-		hasher.hash = sha1.New()
-	case "sha256":
-		hasher.hash = sha256.New()
-	case "sha384":
-		hasher.hash = sha512.New384()
-	case "sha512_224":
-		hasher.hash = sha512.New512_224()
-	case "sha512_256":
-		hasher.hash = sha512.New512_256()
-	case "sha512":
-		hasher.hash = sha512.New()
-	case "ripemd160":
-		hasher.hash = ripemd160.New()
+// HexEncode returns a string with the hex representation of the provided byte
+// array or ArrayBuffer.
+func (c *Crypto) HexEncode(data interface{}) string {
+	d, err := common.ToBytes(data)
+	if err != nil {
+		common.Throw(c.vu.Runtime(), err)
+	}
+	return hex.EncodeToString(d)
+}
+
+// CreateHMAC returns a new HMAC hash using the given algorithm and key.
+func (c *Crypto) CreateHMAC(algorithm string, key interface{}) *Hasher {
+	h := c.parseHashFunc(algorithm)
+	if h == nil {
+		common.Throw(c.vu.Runtime(), fmt.Errorf("invalid algorithm: %s", algorithm))
 	}
 
-	return &hasher
+	kb, err := common.ToBytes(key)
+	if err != nil {
+		common.Throw(c.vu.Runtime(), err)
+	}
+
+	return &Hasher{runtime: c.vu.Runtime(), hash: hmac.New(h, kb)}
+}
+
+// HMAC returns a new HMAC hash of input using the given algorithm and key
+// in the given encoding.
+func (c *Crypto) HMAC(algorithm string, key, input interface{}, outputEncoding string) interface{} {
+	hasher := c.CreateHMAC(algorithm, key)
+	hasher.Update(input)
+	return hasher.Digest(outputEncoding)
+}
+
+func (c *Crypto) parseHashFunc(a string) func() hash.Hash {
+	var h func() hash.Hash
+	switch a {
+	case "md4":
+		h = md4.New
+	case "md5":
+		h = md5.New
+	case "sha1":
+		h = sha1.New
+	case "sha256":
+		h = sha256.New
+	case "sha384":
+		h = sha512.New384
+	case "sha512_224":
+		h = sha512.New512_224
+	case "sha512_256":
+		h = sha512.New512_256
+	case "sha512":
+		h = sha512.New
+	case "ripemd160":
+		h = ripemd160.New
+	}
+	return h
+}
+
+// Hasher wraps an hash.Hash with goja.Runtime.
+type Hasher struct {
+	runtime *goja.Runtime
+	hash    hash.Hash
 }
 
 // Update the hash with the input data.
 func (hasher *Hasher) Update(input interface{}) {
 	d, err := common.ToBytes(input)
 	if err != nil {
-		common.Throw(common.GetRuntime(hasher.ctx), err)
+		common.Throw(hasher.runtime, err)
 	}
 	_, err = hasher.hash.Write(d)
 	if err != nil {
-		common.Throw(common.GetRuntime(hasher.ctx), err)
+		common.Throw(hasher.runtime, err)
 	}
 }
 
 // Digest returns the hash value in the given encoding.
 func (hasher *Hasher) Digest(outputEncoding string) interface{} {
 	sum := hasher.hash.Sum(nil)
-	rt := common.GetRuntime(hasher.ctx)
 
 	switch outputEncoding {
 	case "base64":
@@ -191,69 +281,13 @@ func (hasher *Hasher) Digest(outputEncoding string) interface{} {
 		return hex.EncodeToString(sum)
 
 	case "binary":
-		ab := rt.NewArrayBuffer(sum)
+		ab := hasher.runtime.NewArrayBuffer(sum)
 		return &ab
 
 	default:
 		err := errors.New("Invalid output encoding: " + outputEncoding)
-		common.Throw(rt, err)
+		common.Throw(hasher.runtime, err)
 	}
 
 	return ""
-}
-
-// HexEncode returns a string with the hex representation of the provided byte
-// array or ArrayBuffer.
-func (c Crypto) HexEncode(ctx context.Context, data interface{}) string {
-	d, err := common.ToBytes(data)
-	if err != nil {
-		common.Throw(common.GetRuntime(ctx), err)
-	}
-	return hex.EncodeToString(d)
-}
-
-// CreateHMAC returns a new HMAC hash using the given algorithm and key.
-func (c Crypto) CreateHMAC(ctx context.Context, algorithm string, key interface{}) *Hasher {
-	hasher := Hasher{}
-	hasher.ctx = ctx
-	kb, err := common.ToBytes(key)
-	if err != nil {
-		common.Throw(common.GetRuntime(hasher.ctx), err)
-	}
-
-	switch algorithm {
-	case "md4":
-		hasher.hash = hmac.New(md4.New, kb)
-	case "md5":
-		hasher.hash = hmac.New(md5.New, kb)
-	case "sha1":
-		hasher.hash = hmac.New(sha1.New, kb)
-	case "sha256":
-		hasher.hash = hmac.New(sha256.New, kb)
-	case "sha384":
-		hasher.hash = hmac.New(sha512.New384, kb)
-	case "sha512_224":
-		hasher.hash = hmac.New(sha512.New512_224, kb)
-	case "sha512_256":
-		hasher.hash = hmac.New(sha512.New512_256, kb)
-	case "sha512":
-		hasher.hash = hmac.New(sha512.New, kb)
-	case "ripemd160":
-		hasher.hash = hmac.New(ripemd160.New, kb)
-	default:
-		err := errors.New("Invalid algorithm: " + algorithm)
-		common.Throw(common.GetRuntime(hasher.ctx), err)
-	}
-
-	return &hasher
-}
-
-// Hmac returns a new HMAC hash of input using the given algorithm and key
-// in the given encoding.
-func (c *Crypto) Hmac(
-	ctx context.Context, algorithm string, key, input interface{}, outputEncoding string,
-) interface{} {
-	hasher := c.CreateHMAC(ctx, algorithm, key)
-	hasher.Update(input)
-	return hasher.Digest(outputEncoding)
 }

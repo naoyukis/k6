@@ -32,6 +32,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.k6.io/k6/js/common"
+	"go.k6.io/k6/js/modulestest"
 	"go.k6.io/k6/lib"
 )
 
@@ -50,7 +51,17 @@ func TestCryptoAlgorithms(t *testing.T) {
 	rt.SetFieldNameMapper(common.FieldNameMapper{})
 	ctx := context.Background()
 	ctx = common.WithRuntime(ctx, rt)
-	rt.Set("crypto", common.Bind(rt, New(), &ctx))
+
+	m, ok := New().NewModuleInstance(
+		&modulestest.VU{
+			RuntimeField: rt,
+			InitEnvField: &common.InitEnvironment{},
+			CtxField:     ctx,
+			StateField:   nil,
+		},
+	).(*Crypto)
+	require.True(t, ok)
+	require.NoError(t, rt.Set("crypto", m.Exports().Default))
 
 	t.Run("RandomBytesSuccess", func(t *testing.T) {
 		_, err := rt.RunString(`
@@ -193,7 +204,16 @@ func TestStreamingApi(t *testing.T) {
 	ctx = lib.WithState(ctx, state)
 	ctx = common.WithRuntime(ctx, rt)
 
-	rt.Set("crypto", common.Bind(rt, New(), &ctx))
+	m, ok := New().NewModuleInstance(
+		&modulestest.VU{
+			RuntimeField: rt,
+			InitEnvField: &common.InitEnvironment{},
+			CtxField:     ctx,
+			StateField:   nil,
+		},
+	).(*Crypto)
+	require.True(t, ok)
+	require.NoError(t, rt.Set("crypto", m.Exports().Default))
 
 	// Empty strings are still hashable
 	t.Run("Empty", func(t *testing.T) {
@@ -258,7 +278,16 @@ func TestOutputEncoding(t *testing.T) {
 	ctx = lib.WithState(ctx, state)
 	ctx = common.WithRuntime(ctx, rt)
 
-	rt.Set("crypto", common.Bind(rt, New(), &ctx))
+	m, ok := New().NewModuleInstance(
+		&modulestest.VU{
+			RuntimeField: rt,
+			InitEnvField: &common.InitEnvironment{},
+			CtxField:     ctx,
+			StateField:   nil,
+		},
+	).(*Crypto)
+	require.True(t, ok)
+	require.NoError(t, rt.Set("crypto", m.Exports().Default))
 
 	t.Run("Valid", func(t *testing.T) {
 		_, err := rt.RunString(`
@@ -337,7 +366,16 @@ func TestHMac(t *testing.T) {
 	ctx = lib.WithState(ctx, state)
 	ctx = common.WithRuntime(ctx, rt)
 
-	rt.Set("crypto", common.Bind(rt, New(), &ctx))
+	m, ok := New().NewModuleInstance(
+		&modulestest.VU{
+			RuntimeField: rt,
+			InitEnvField: &common.InitEnvironment{},
+			CtxField:     ctx,
+			StateField:   nil,
+		},
+	).(*Crypto)
+	require.True(t, ok)
+	require.NoError(t, rt.Set("crypto", m.Exports().Default))
 
 	testData := map[string]string{
 		"md4":        "92d8f5c302cf04cca0144d7a9feb1596",
@@ -409,7 +447,7 @@ func TestHMac(t *testing.T) {
 				throw new Error("Hex encoding mismatch: " + resultHex);
 			}`)
 
-			assert.Contains(t, err.Error(), "Invalid algorithm: "+algorithm)
+			assert.Contains(t, err.Error(), "invalid algorithm: "+algorithm)
 		})
 
 		t.Run(algorithm+" wrapper: invalid", func(t *testing.T) {
@@ -419,53 +457,65 @@ func TestHMac(t *testing.T) {
 				throw new Error("Hex encoding mismatch: " + resultHex);
 			}`)
 
-			assert.Contains(t, err.Error(), "Invalid algorithm: "+algorithm)
+			assert.Contains(t, err.Error(), "invalid algorithm: "+algorithm)
 		})
 	}
 }
 
-func TestHexEncodeOK(t *testing.T) {
-	rt := goja.New()
-	input := []byte{104, 101, 108, 108, 111}
-	testCases := []interface{}{
-		input, string(input), rt.NewArrayBuffer(input),
-	}
+func TestHexEncode(t *testing.T) {
+	t.Parallel()
+	t.Run("Success", func(t *testing.T) {
+		t.Parallel()
+		rt := goja.New()
+		input := []byte{104, 101, 108, 108, 111}
+		testCases := []interface{}{
+			input, string(input), rt.NewArrayBuffer(input),
+		}
 
-	for _, tc := range testCases {
-		tc := tc
-		t.Run(fmt.Sprintf("%T", tc), func(t *testing.T) {
-			c := New()
-			ctx := common.WithRuntime(context.Background(), rt)
-			out := c.HexEncode(ctx, tc)
-			assert.Equal(t, "68656c6c6f", out)
-		})
-	}
-}
+		for _, tc := range testCases {
+			tc := tc
+			t.Run(fmt.Sprintf("%T", tc), func(t *testing.T) {
+				c := Crypto{}
+				out := c.HexEncode(tc)
+				assert.Equal(t, "68656c6c6f", out)
+			})
+		}
+	})
 
-func TestHexEncodeError(t *testing.T) {
-	rt := goja.New()
+	t.Run("InvalidTypeError", func(t *testing.T) {
+		t.Parallel()
+		expErr := "invalid type struct {}, expected string, []byte or ArrayBuffer"
+		defer func() {
+			err := recover()
+			require.NotNil(t, err)
+			require.IsType(t, &goja.Object{}, err)
+			val := err.(*goja.Object).Export()
+			require.EqualError(t, val.(error), expErr)
+		}()
 
-	expErr := "invalid type struct {}, expected string, []byte or ArrayBuffer"
-	defer func() {
-		err := recover()
-		require.NotNil(t, err)
-		require.IsType(t, &goja.Object{}, err)
-		val := err.(*goja.Object).Export()
-		require.EqualError(t, val.(error), expErr)
-	}()
-
-	c := New()
-	ctx := common.WithRuntime(context.Background(), rt)
-	c.HexEncode(ctx, struct{}{})
+		c := Crypto{vu: &modulestest.VU{
+			RuntimeField: goja.New(),
+		}}
+		c.HexEncode(struct{}{})
+	})
 }
 
 func TestAWSv4(t *testing.T) {
 	// example values from https://docs.aws.amazon.com/general/latest/gr/signature-v4-examples.html
 	rt := goja.New()
 	rt.SetFieldNameMapper(common.FieldNameMapper{})
-	ctx := context.Background()
-	ctx = common.WithRuntime(ctx, rt)
-	rt.Set("crypto", common.Bind(rt, New(), &ctx))
+	ctx := common.WithRuntime(context.Background(), rt)
+
+	m, ok := New().NewModuleInstance(
+		&modulestest.VU{
+			RuntimeField: rt,
+			InitEnvField: &common.InitEnvironment{},
+			CtxField:     ctx,
+			StateField:   nil,
+		},
+	).(*Crypto)
+	require.True(t, ok)
+	require.NoError(t, rt.Set("crypto", m.Exports().Default))
 
 	_, err := rt.RunString(`
 		var HexEncode = crypto.hexEncode;
