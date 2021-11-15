@@ -21,7 +21,6 @@
 package x509
 
 import (
-	"context"
 	"crypto/dsa"
 	"crypto/ecdsa"
 	"crypto/rsa"
@@ -33,11 +32,57 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/dop251/goja"
 	"go.k6.io/k6/js/common"
+	"go.k6.io/k6/js/modules"
 )
 
-// X509 certificate functionality
-type X509 struct{}
+type (
+	// RootModule is the global module instance that will create module
+	// instances for each VU.
+	RootModule struct{}
+
+	// X509 represents an instance of the X509 certificate module.
+	X509 struct {
+		vu  modules.VU
+		obj *goja.Object
+	}
+)
+
+var (
+	_ modules.Module   = &RootModule{}
+	_ modules.Instance = &X509{}
+)
+
+// New returns a pointer to a new RootModule instance.
+func New() *RootModule {
+	return &RootModule{}
+}
+
+// NewModuleInstance implements the modules.Module interface to return
+// a new instance for each VU.
+func (*RootModule) NewModuleInstance(vu modules.VU) modules.Instance {
+	rt := vu.Runtime()
+	o := rt.NewObject()
+	mi := &X509{vu: vu, obj: o}
+
+	mustExport := func(name string, value interface{}) {
+		if err := mi.obj.Set(name, value); err != nil {
+			common.Throw(rt, err)
+		}
+	}
+
+	mustExport("parse", mi.Parse)
+	mustExport("getAltNames", mi.AltNames)
+	mustExport("getIssuer", mi.Issuer)
+	mustExport("getSubject", mi.Subject)
+	return mi
+}
+
+// Exports returns the exports of the execution module.
+func (mi *X509) Exports() modules.Exports {
+	return modules.Exports{Default: mi.obj}
+}
 
 // Certificate is an X.509 certificate
 type Certificate struct {
@@ -86,47 +131,42 @@ type PublicKey struct {
 	Key       interface{}
 }
 
-// New constructs the X509 interface
-func New() *X509 {
-	return &X509{}
-}
-
 // Parse produces an entire X.509 certificate
-func (X509) Parse(ctx context.Context, encoded []byte) Certificate {
+func (mi X509) Parse(encoded []byte) Certificate {
 	parsed, err := parseCertificate(encoded)
 	if err != nil {
-		throw(ctx, err)
+		common.Throw(mi.vu.Runtime(), err)
 	}
 	certificate, err := makeCertificate(parsed)
 	if err != nil {
-		throw(ctx, err)
+		common.Throw(mi.vu.Runtime(), err)
 	}
 	return certificate
 }
 
-// GetAltNames extracts alt names
-func (X509) GetAltNames(ctx context.Context, encoded []byte) []string {
+// AltNames extracts alt names
+func (mi X509) AltNames(encoded []byte) []string {
 	parsed, err := parseCertificate(encoded)
 	if err != nil {
-		throw(ctx, err)
+		common.Throw(mi.vu.Runtime(), err)
 	}
 	return altNames(parsed)
 }
 
-// GetIssuer extracts certificate issuer
-func (X509) GetIssuer(ctx context.Context, encoded []byte) Issuer {
+// Issuer extracts certificate issuer
+func (mi X509) Issuer(encoded []byte) Issuer {
 	parsed, err := parseCertificate(encoded)
 	if err != nil {
-		throw(ctx, err)
+		common.Throw(mi.vu.Runtime(), err)
 	}
 	return makeIssuer(parsed.Issuer)
 }
 
-// GetSubject extracts certificate subject
-func (X509) GetSubject(ctx context.Context, encoded []byte) Subject {
+// Subject extracts certificate subject
+func (mi X509) Subject(encoded []byte) Subject {
 	parsed, err := parseCertificate(encoded)
 	if err != nil {
-		throw(ctx, err)
+		common.Throw(mi.vu.Runtime(), err)
 	}
 	return makeSubject(parsed.Subject)
 }
@@ -267,8 +307,4 @@ func signatureAlgorithm(value x509.SignatureAlgorithm) string {
 func fingerPrint(parsed *x509.Certificate) []byte {
 	bytes := sha1.Sum(parsed.Raw) // #nosec G401
 	return bytes[:]
-}
-
-func throw(ctx context.Context, err error) {
-	common.Throw(common.GetRuntime(ctx), err)
 }
