@@ -21,24 +21,62 @@
 package encoding
 
 import (
-	"context"
 	"encoding/base64"
 
+	"github.com/dop251/goja"
 	"go.k6.io/k6/js/common"
+	"go.k6.io/k6/js/modules"
 )
 
-type Encoding struct{}
+type (
+	// RootModule is the global module instance that will create module
+	// instances for each VU.
+	RootModule struct{}
 
-func New() *Encoding {
-	return &Encoding{}
+	// Encoding represents an instance of the encoding module.
+	Encoding struct {
+		vu  modules.VU
+		obj *goja.Object
+	}
+)
+
+var (
+	_ modules.Module   = &RootModule{}
+	_ modules.Instance = &Encoding{}
+)
+
+// New returns a pointer to a new RootModule instance.
+func New() *RootModule {
+	return &RootModule{}
+}
+
+// NewModuleInstance implements the modules.Module interface to return
+// a new instance for each VU.
+func (*RootModule) NewModuleInstance(vu modules.VU) modules.Instance {
+	rt := vu.Runtime()
+	mi := &Encoding{vu: vu, obj: rt.NewObject()}
+
+	if err := mi.obj.Set("b64encode", mi.B64Encode); err != nil {
+		common.Throw(rt, err)
+	}
+	if err := mi.obj.Set("b64decode", mi.B64Decode); err != nil {
+		common.Throw(rt, err)
+	}
+
+	return mi
+}
+
+// Exports returns the exports of the encoding module.
+func (e *Encoding) Exports() modules.Exports {
+	return modules.Exports{Default: e.obj}
 }
 
 // B64encode returns the base64 encoding of input as a string.
 // The data type of input can be a string, []byte or ArrayBuffer.
-func (e *Encoding) B64encode(ctx context.Context, input interface{}, encoding string) string {
+func (e *Encoding) B64Encode(input interface{}, encoding string) string {
 	data, err := common.ToBytes(input)
 	if err != nil {
-		common.Throw(common.GetRuntime(ctx), err)
+		common.Throw(e.vu.Runtime(), err)
 	}
 	switch encoding {
 	case "rawstd":
@@ -57,9 +95,11 @@ func (e *Encoding) B64encode(ctx context.Context, input interface{}, encoding st
 // B64decode returns the decoded data of the base64 encoded input string using
 // the given encoding. If format is "s" it returns the data as a string,
 // otherwise as an ArrayBuffer.
-func (e *Encoding) B64decode(ctx context.Context, input, encoding, format string) interface{} {
-	var output []byte
-	var err error
+func (e *Encoding) B64Decode(input, encoding, format string) interface{} {
+	var (
+		output []byte
+		err    error
+	)
 
 	switch encoding {
 	case "rawstd":
@@ -74,16 +114,15 @@ func (e *Encoding) B64decode(ctx context.Context, input, encoding, format string
 		output, err = base64.StdEncoding.DecodeString(input)
 	}
 
-	rt := common.GetRuntime(ctx) //nolint: ifshort
 	if err != nil {
-		common.Throw(rt, err)
+		common.Throw(e.vu.Runtime(), err)
 	}
 
 	var out interface{}
 	if format == "s" {
 		out = string(output)
 	} else {
-		ab := rt.NewArrayBuffer(output)
+		ab := e.vu.Runtime().NewArrayBuffer(output)
 		out = &ab
 	}
 
